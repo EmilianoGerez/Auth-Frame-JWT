@@ -6,9 +6,9 @@ var userValid = require('../validators/user.server.validator');
 
 router.post('/login', userValid.login, authCtrl.login);
 
-router.get('/logout/:id/:device/:os/:browser', authCtrl.isAuth, authCtrl.logout);
+router.get('/logout/:id/:sessionId', authCtrl.isAuth, authCtrl.logout);
 
-router.post('/refresh', authCtrl.refreshToken);
+router.get('/refresh', authCtrl.refreshToken);
 
 router.post('/forgot', authCtrl.forgot);
 

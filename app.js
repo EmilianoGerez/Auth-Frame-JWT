@@ -22,6 +22,7 @@ mongoose.connect(configDB.url, function(err){
 });
 
 var app = express();
+app.use(cors());
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
@@ -36,12 +37,13 @@ app.use(validator());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'client')));
 
+
 // Routes middleware
 var routes = require('./routes/index.server.routes');
 var users = require('./routes/users.server.routes');
 var auth = require('./routes/auth.server.routes');
 
-app.use(cors());
+
 app.use('/', routes);
 app.use('/api/users', users);
 app.use('/api/auth', auth);

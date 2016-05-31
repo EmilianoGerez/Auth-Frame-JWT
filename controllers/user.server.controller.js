@@ -22,10 +22,8 @@ exports.create = function (req, res) {
         async.apply(userSave, req, newUser),
         authCtrl.sendemail
     ], function (err, user) {
-        if(err){
-            return res.status(err.status).jsonp({
-                message: err.message
-            });
+        if (err) {
+            return res.status(err.status).jsonp(err.res);
         }
 
         return res.status(201).jsonp(user);
@@ -37,7 +35,9 @@ function userSave(req, newUser, callback) {
         if (err) {
             var error = {
                 status: 500,
-                message: err.message
+                res: {
+                    message: err.message
+                }
             };
             return callback(error, null);
         }
@@ -112,17 +112,34 @@ exports.findOne = function (req, res) {
 exports.update = function (req, res) {
     User.findById(req.params.id).exec(function (err, user) {
         if (err) {
-            res.status(500).jsonp(err);
+            return res.status(500).jsonp(err);
+        }
+
+        if (!user) {
+            return res.status(404).jsonp({
+                message: 'User does not exist'
+            })
         }
 
         user.firstName = req.body.firstName;
         user.lastName = req.body.lastName;
-        user.email = req.body.email;
-        user.password = user.generateHash(req.body.password);
+        // when user update the password, the req will have the new and old or current password
+        if (req.body.password) {
+            if (!user.validPassword(req.body.oldPassword)) {
+                return res.status(401).jsonp({
+                    error: 'currentPassword',
+                    message: 'Invalid current password'
+                });
+            }
+
+            user.password = user.generateHash(req.body.password);
+            var responseType = 'passChanged';
+            var responseMsg = 'Password changed successfully';
+        }
 
         user.save(function (err) {
             if (err) {
-                res.status(500).jsonp(err);
+                return res.status(500).jsonp(err);
             }
 
             // remove pass value for send to the client
@@ -132,7 +149,11 @@ exports.update = function (req, res) {
                 session.token = undefined;
             });
 
-            res.status(200).jsonp(user);
+            return res.status(200).jsonp({
+                type: responseType || 'default',
+                message: responseMsg || 'User update successfully',
+                data: user
+            });
         });
     });
 };

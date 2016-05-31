@@ -1,46 +1,46 @@
 /*
-// Signup Workflow
-    Create user
-    SendEmail [sendEmail]
-        generate code [generateCode] (code = cipher userId + (actual Date + 2 days))
-        generate template (for activation account or reset pass)
-        setup email [setupEmail]
-        send email
+ // Signup Workflow
+ Create user
+ SendEmail [sendEmail]
+ generate code [generateCode] (code = cipher userId + (actual Date + 2 days))
+ generate template (for activation account or reset pass)
+ setup email [setupEmail]
+ send email
 
-// Activate Account WorkFlow
-    [activate]
-        [verifyCode] (decrypt code, check valid and expiration)
-        Update user
+ // Activate Account WorkFlow
+ [activate]
+ [verifyCode] (decrypt code, check valid and expiration)
+ Update user
 
-// Send Activation Workflow
-    [sendActivation]
-    [findUserByEmail]
-    [sendEmail]
+ // Send Activation Workflow
+ [sendActivation]
+ [findUserByEmail]
+ [sendEmail]
 
-// Login Workflow
-    Find User
-    [loginProcess]
-        [getDeviceData] (device data for create session by agent-device)
-        [cleanSessions] (remove old and expired sessions)
-        [createSession]
-        [createToken]   (create jwt and return this)
+ // Login Workflow
+ Find User
+ [loginProcess]
+ [getDeviceData] (device data for create session by agent-device)
+ [cleanSessions] (remove old and expired sessions)
+ [createSession]
+ [createToken]   (create jwt and return this)
 
-// Refresh Token Workflow
-    [tokenVerify]
-    [getDeviceData] (for find current session)
-    [verifySession] (check expiration session)
-    [createToken] (send a new jwt)
+ // Refresh Token Workflow
+ [tokenVerify]
+ [getDeviceData] (for find current session)
+ [verifySession] (check expiration session)
+ [createToken] (send a new jwt)
 
-// Logout Workflow
-    Find user
-    check params (for close current session or specific session)
-        specific session
-            [cleanSession]
-            [updateSession]
-        current session
-            [getDeviceData]
-            [cleanSession]
-            [updateSession]
+ // Logout Workflow
+ Find user
+ check params (for close current session or specific session)
+ specific session
+ [cleanSession]
+ [updateSession]
+ current session
+ [getDeviceData]
+ [cleanSession]
+ [updateSession]
 
  */
 
@@ -93,9 +93,8 @@ exports.activate = function (req, res) {
     var codeVerify = verifyCode(code);
 
     if (!codeVerify.isValid) {
-        return res.status(codeVerify.status).jsonp({
-            message: codeVerify.message
-        });
+        res.status(codeVerify.status).jsonp(codeVerify.res);
+        return;
     }
 
     User.findByIdAndUpdate(
@@ -120,9 +119,7 @@ exports.sendActivation = function (req, res) {
         sendEmail
     ], function (err) {
         if (err) {
-            return res.status(err.status).jsonp({
-                message: err.message
-            });
+            return res.status(err.status).jsonp(err.res);
         }
 
         return res.status(200).jsonp({
@@ -136,8 +133,8 @@ exports.login = function (req, res) {
 
     // check form data
     if (!req.body.email || !req.body.password) {
-        return res.status(400).json({
-            error: true,
+        return res.status(400).jsonp({
+            error: 'blankCredentials',
             message: "Email or Password can't be blank"
         });
     }
@@ -151,18 +148,21 @@ exports.login = function (req, res) {
 
         if (!user) {
             return res.status(404).jsonp({
-                message: "User doesn't exist"
+                error: 'credentials',
+                message: "Invalid email or password"
             });
         }
 
         if (!user.active) {
             return res.status(401).jsonp({
+                error: 'activation',
                 message: 'This account needs activation. Please check your email account'
             });
         }
 
         if (!user.validPassword(req.body.password)) {
             return res.status(401).jsonp({
+                error: 'credentials',
                 message: 'Invalid email or password'
             });
         }
@@ -181,7 +181,7 @@ exports.refreshToken = function (req, res) {
         createToken
     ], function (err, token) {
         if (err) {
-            return res.status(err.status).jsonp(err.message);
+            return res.status(err.status).jsonp(err.res);
         }
         return res.status(200).jsonp({
             token: token
@@ -212,13 +212,19 @@ exports.logout = function (req, res) {
 
             var asyncOperations;
 
-            // for close a selected session
-            if (req.params.device !== 'null' && req.params.os !== 'null' && req.params.browser !== 'null') {
-                var device = req.params.device;
-                var agent = {
-                    os: req.params.os,
-                    browser: req.params.browser
-                };
+            if (req.params.sessionId !== 'null') {
+                var device;
+                var agent;
+
+                user.sessions.forEach(function (session) {
+                    if (session._id == req.params.sessionId) {
+                        device = session.device;
+                        agent = {
+                            os: session.os,
+                            browser: session.browser
+                        };
+                    }
+                });
 
                 asyncOperations = [
                     async.apply(cleanSessions, user, agent, device),
@@ -235,12 +241,10 @@ exports.logout = function (req, res) {
             // clean session
             async.waterfall(asyncOperations, function (err) {
                 if (err) {
-                    return res.status(500).jsonp({
-                        message: err.message
-                    });
+                    return res.status(500).jsonp(err.res);
                 }
 
-                return res.status(204).jsonp({
+                return res.status(200).jsonp({
                     message: 'Session closed'
                 });
             });
@@ -296,7 +300,7 @@ exports.forgot = function (req, res) {
         sendEmail
     ], function (err, info) {
         if (err) {
-            return res.status(err.status).jsonp(err.message);
+            return res.status(err.status).jsonp(err.res);
         }
         return res.status(200).jsonp({
             data: info,
@@ -319,9 +323,7 @@ exports.reset = function (req, res) {
     var codeVerify = verifyCode(code);
 
     if (!codeVerify.isValid) {
-        return res.status(codeVerify.status).jsonp({
-            message: codeVerify.message
-        });
+        return res.status(codeVerify.status).jsonp(codeVerify.res);
     }
 
 
@@ -353,7 +355,10 @@ function findUserByEmail(req, callback) {
         if (err) {
             error = {
                 status: 500,
-                message: err.message
+                res: {
+                    error: 'internal',
+                    message: err.message
+                }
             };
             return callback(error, null);
         }
@@ -361,7 +366,10 @@ function findUserByEmail(req, callback) {
         if (!user) {
             error = {
                 status: 404,
-                message: 'Invalid email'
+                res: {
+                    error: 'invalidEmail',
+                    message: 'Invalid email'
+                }
             };
             return callback(error, null);
         }
@@ -382,7 +390,7 @@ function loginProcess(req, res, user) {
         createToken
     ], function (err, token, user) {
         if (err) {
-            return res.status(500).jsonp(err);
+            return res.status(500).jsonp(err.res);
         }
 
         // remove refresh token for send to the client
@@ -503,13 +511,15 @@ function createToken(user, callback) {
 
 // verify user token [refresh token]
 function tokenVerify(req, callback) {
-    var token = req.headers['x-access-token'] || req.headers.authorization || req.body.token;
+    var token = req.headers['x-access-token'] || req.headers.authorization;
     var error;
 
     if (!token) {
         error = {
             status: 401,
-            message: 'Invalid credentials'
+            res: {
+                message: 'Invalid credentials'
+            }
         };
         return callback(error, null);
     }
@@ -518,7 +528,9 @@ function tokenVerify(req, callback) {
         if (err && err.name !== 'TokenExpiredError') {
             error = {
                 status: 401,
-                message: 'Invalid token'
+                res: {
+                    message: 'Invalid token'
+                }
             };
             return callback(error, null);
         }
@@ -536,7 +548,9 @@ function verifySession(decodedToken, agent, mac, callback) {
         if (err) {
             error = {
                 status: 500,
-                message: 'Server error'
+                res: {
+                    message: 'Server error'
+                }
             };
             return callback(error, null);
         }
@@ -553,7 +567,9 @@ function verifySession(decodedToken, agent, mac, callback) {
                 } catch (err) {
                     error = {
                         status: 401,
-                        message: 'Session expired'
+                        res: {
+                            message: 'Session expired'
+                        }
                     };
                     return callback(error, null);
                 }
@@ -568,7 +584,9 @@ function verifySession(decodedToken, agent, mac, callback) {
             // no session
             error = {
                 status: 404,
-                message: 'No session'
+                res: {
+                    message: 'No session'
+                }
             };
             return callback(error, null);
         }
@@ -598,14 +616,19 @@ function getUserAndCloseSessions(req, callback) {
             if (err) {
                 error = {
                     status: 500,
-                    message: err.message
+                    res: {
+                        message: err.message
+                    }
                 };
                 return callback(error, null);
             }
             if (!user) {
                 error = {
                     status: 404,
-                    message: 'Invalid email'
+                    res: {
+                        error: 'invalidEmail',
+                        message: 'Invalid email'
+                    }
                 };
                 return callback(error, null);
             }
@@ -630,11 +653,14 @@ function sendEmail(req, user, isReset, callback) {
         if (err) {
             var error = {
                 status: 500,
-                message: err
+                res: {
+                    error: 'sending',
+                    message: err
+                }
             };
             return callback(error, null);
         }
-        return callback(null, info);
+        return callback(null, user);
     });
 }
 
@@ -673,7 +699,10 @@ function verifyCode(code) {
         return {
             isValid: false,
             status: 401,
-            message: 'Invalid code'
+            res: {
+                error: 'invalidCode',
+                message: 'Invalid code'
+            }
         };
     }
 
@@ -686,7 +715,10 @@ function verifyCode(code) {
         return {
             isValid: false,
             status: 401,
-            message: 'Code expired'
+            res: {
+                error: 'expiredCode',
+                message: 'Code expired'
+            }
         };
     }
 
